@@ -23,12 +23,15 @@ int rvo;
 struct addrinfo houts, *resout;
 
 pthread_mutex_t receivingLock, sendingLock;
+pthread_cond_t displayCond, sendCond;
 	
 void *print_message_function(void *empty){
 	char message[maxMsgLength];
 	while(1){
 		pthread_mutex_lock(&receivingLock);
-		while(ListCount(displayMsgList) != 0){
+		if(ListCount(displayMsgList)==0)
+			pthread_cond_wait(&displayCond, &receivingLock);
+		while(ListCount(displayMsgList) > 0){
 			strcpy(message, (char*) ListRemove(displayMsgList));
 			printf("remote user: %s", message);	 
 		}
@@ -44,6 +47,7 @@ void *keyboard_message_function(void *empty){
 			exit(1);
 		pthread_mutex_lock(&sendingLock);
 		ListAdd(sendMsgList, message);
+		pthread_cond_signal(&sendCond);
 		pthread_mutex_unlock(&sendingLock);
 	}
 }
@@ -52,6 +56,8 @@ void *UDP_send_function(void *empty){
 	char sending[maxMsgLength];
 	while(1){
 		pthread_mutex_lock(&sendingLock);
+		if(ListCount(sendMsgList) == 0)
+			pthread_cond_wait(&sendCond, &sendingLock);
 		while(ListCount(sendMsgList) > 0){
 			strcpy(sending, (char*) ListRemove(sendMsgList));
 			int i = sendto(sockfd, sending, sizeof(sending), 0, resout->ai_addr, resout->ai_addrlen);
@@ -66,6 +72,7 @@ void *UDP_receive_function(void *empty){
 		while(recvfrom(sockfd, received, sizeof(received), 0, resout->ai_addr, &(resout->ai_addrlen))!=-1){
 			pthread_mutex_lock(&receivingLock);
 			ListAdd(displayMsgList, received);
+			pthread_cond_signal(&displayCond);
 			pthread_mutex_unlock(&receivingLock);
 		}			
 	}
